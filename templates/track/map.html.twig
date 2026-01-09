@@ -30,7 +30,7 @@
     .leaflet-popup-content {
       margin: 14px 16px;            /* more padding */
       line-height: 1.35;
-      font-size: 16px;
+      font-size: 24px;
     }
     .leaflet-popup-content-wrapper {
       border-radius: 14px;
@@ -144,7 +144,7 @@
     const visibleRadius = isCoarsePointer ? (isLatest ? 8 : 6) : (isLatest ? 6 : 4);
 
     // Hit area (invisible / nearly invisible but interactive)
-    const hitRadius = isCoarsePointer ? 24 : 16;
+    const hitRadius = isCoarsePointer ? 20 : 12;
 
     // 1) visible dot
     const dot = L.circleMarker([p.lat, p.lon], {
