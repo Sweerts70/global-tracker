@@ -12,10 +12,47 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+<style>
+  /* General: nicer touch behavior */
+  #map { touch-action: pan-x pan-y; }
+
+  /* Make links/buttons easier to tap in popups */
+  .leaflet-popup-content a {
+    display: inline-block;
+    padding: 6px 0;
+  }
+
+  /* Mobile / coarse pointer tweaks */
+  @media (pointer: coarse), (max-width: 768px) {
+    .leaflet-container {
+      font-size: 16px;              /* larger base text */
+    }
+    .leaflet-popup-content {
+      margin: 14px 16px;            /* more padding */
+      line-height: 1.35;
+      font-size: 16px;
+    }
+    .leaflet-popup-content-wrapper {
+      border-radius: 14px;
+    }
+    .leaflet-popup-close-button {
+      width: 44px;                  /* Apple-ish tap size */
+      height: 44px;
+      font-size: 28px;
+      line-height: 44px;
+    }
+  }
+</style>
+
 <script>
+
+  const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+
   const map = L.map('map', {
     worldCopyJump: true,
-    tap: true,              // helps mobile
+    tap: true,
+    tapTolerance: isCoarsePointer ? 25 : 15,  // bigger tolerance on phones
+    preferCanvas: true                        // helps performance if you have many points
   }).setView([0, 0], 2);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -100,43 +137,55 @@
     const pointMarkers = [];
 
     points.forEach(p => {
-      const isLatest =
+    const isLatest =
         lastPoint && p.lat === lastPoint.lat && p.lon === lastPoint.lon && p.addedOn === lastPoint.addedOn;
 
-      const marker = L.circleMarker([p.lat, p.lon], {
-        radius: isLatest ? 8 : 6,  // bigger for latest
+    // Visible marker size
+    const visibleRadius = isCoarsePointer ? (isLatest ? 10 : 8) : (isLatest ? 8 : 6);
+
+    // Hit area (invisible / nearly invisible but interactive)
+    const hitRadius = isCoarsePointer ? 18 : 10;
+
+    // 1) visible dot
+    const dot = L.circleMarker([p.lat, p.lon], {
+        radius: visibleRadius,
         weight: isLatest ? 3 : 2,
         fillOpacity: 0.9,
+        interactive: false   // IMPORTANT: dot is not the tap target
+    }).addTo(map);
+
+    // 2) invisible hit target on top
+    const hit = L.circleMarker([p.lat, p.lon], {
+        radius: hitRadius,
+        weight: 0,
+        opacity: 0,
+        fillOpacity: 0.01,   // keep it effectively invisible, but still clickable
         interactive: true
-      }).addTo(map);
+    }).addTo(map);
 
-      let popup = '';
+    let popup = '';
 
-      // a) Timestamp
-      if (p.addedOn) {
-        popup += `<strong>${escapeHtml(p.addedOn)}</strong>`;
-      }
+    if (p.addedOn) popup += `<strong>${escapeHtml(p.addedOn)}</strong>`;
+    popup += `<br>lat: ${p.lat.toFixed(5)}, lon: ${p.lon.toFixed(5)}`;
+    if (p.message) popup += `<br><br>${autoLink(p.message)}`;
 
-      // b) Lat / Lon first
-      popup += `<br>lat: ${p.lat.toFixed(5)}, lon: ${p.lon.toFixed(5)}`;
-
-      // c) Message (clickable links + line breaks)
-      if (p.message) {
-        popup += `<br><br>${autoLink(p.message)}`;
-      }
-
-      marker.bindPopup(popup, {
-        maxWidth: 320,
+    hit.bindPopup(popup, {
+        maxWidth: isCoarsePointer ? 360 : 320,
         closeButton: true,
-        autoPan: true
-      });
+        autoPan: true,
+        autoPanPadding: isCoarsePointer ? [24, 24] : [12, 12],
+        className: isCoarsePointer ? 'popup-mobile' : ''
+    });
 
-      // Mobile: open popup on tap
-      marker.on('click', () => marker.openPopup());
-      marker.on('touchstart', () => marker.openPopup());
+    // Single event that works for mouse + touch
+    hit.on('pointerdown', (e) => {
+        // Prevent map from also interpreting this as a drag start
+        L.DomEvent.stop(e);
+        hit.openPopup();
+    });
 
-      drawnLayers.push(marker);
-      pointMarkers.push(marker);
+    drawnLayers.push(dot, hit);
+    pointMarkers.push(hit); // keep "hit" markers in your list for "open latest"
     });
 
     // Optionally open latest popup by default (nice on mobile)
