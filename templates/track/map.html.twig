@@ -141,10 +141,10 @@
         lastPoint && p.lat === lastPoint.lat && p.lon === lastPoint.lon && p.addedOn === lastPoint.addedOn;
 
     // Visible marker size
-    const visibleRadius = isCoarsePointer ? (isLatest ? 10 : 8) : (isLatest ? 8 : 6);
+    const visibleRadius = isCoarsePointer ? (isLatest ? 8 : 6) : (isLatest ? 6 : 4);
 
     // Hit area (invisible / nearly invisible but interactive)
-    const hitRadius = isCoarsePointer ? 18 : 10;
+    const hitRadius = isCoarsePointer ? 24 : 16;
 
     // 1) visible dot
     const dot = L.circleMarker([p.lat, p.lon], {
@@ -170,7 +170,7 @@
     if (p.message) popup += `<br><br>${autoLink(p.message)}`;
 
     hit.bindPopup(popup, {
-        maxWidth: isCoarsePointer ? 360 : 320,
+        maxWidth: isCoarsePointer ? 460 : 320,
         closeButton: true,
         autoPan: true,
         autoPanPadding: isCoarsePointer ? [24, 24] : [12, 12],
