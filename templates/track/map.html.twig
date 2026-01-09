@@ -13,7 +13,10 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-  const map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
+  const map = L.map('map', {
+    worldCopyJump: true,
+    tap: true,              // helps mobile
+  }).setView([0, 0], 2);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
@@ -29,24 +32,33 @@
     drawnLayers = [];
   }
 
-    function autoLink(s) {
-        if (!s) return '';
+  function escapeHtml(s) {
+    return String(s)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
 
-        // Escape everything first
-        let escaped = escapeHtml(s);
+  function autoLink(s) {
+    if (!s) return '';
 
-        // Convert URLs into links (http/https only)
-        escaped = escaped.replace(
-            /(https?:\/\/[^\s<]+)/g,
-            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-        );
+    // Escape everything first
+    let escaped = escapeHtml(s);
 
-        // Preserve line breaks
-        return escaped.replace(/\n/g, '<br>');
-    }
+    // Convert URLs into links (http/https only)
+    escaped = escaped.replace(
+      /(https?:\/\/[^\s<]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+    );
+
+    // Preserve line breaks
+    return escaped.replace(/\n/g, '<br>');
+  }
 
   async function loadTrack() {
-    const res = await fetch('/api/trackpoints');
+    const res = await fetch('/api/trackpoints', { cache: 'no-store' });
     if (!res.ok) throw new Error('API error');
 
     const json = await res.json();
@@ -57,20 +69,20 @@
 
     clearDrawn();
 
-    if (segments.length === 0) {
+    if (segments.length === 0 || points.length === 0) {
       meta.textContent = 'No points yet.';
       return;
     }
 
-    // 1) Draw polylines
+    // 1) Draw polylines (make them more visible on mobile)
     const lines = [];
     segments.forEach(seg => {
       if (seg.length >= 2) {
-        const poly = L.polyline(seg).addTo(map);
+        const poly = L.polyline(seg, { weight: 4 }).addTo(map);
         lines.push(poly);
         drawnLayers.push(poly);
       } else if (seg.length === 1) {
-        const dot = L.circleMarker(seg[0], { radius: 4, weight: 1, fillOpacity: 0.7 }).addTo(map);
+        const dot = L.circleMarker(seg[0], { radius: 8, weight: 2, fillOpacity: 0.9 }).addTo(map);
         drawnLayers.push(dot);
       }
     });
@@ -81,64 +93,68 @@
       map.fitBounds(group.getBounds(), { padding: [30, 30] });
     }
 
-    // 3) Hover / tap points with timestamp + message
+    // 3) Points as big, tap-friendly circleMarkers with popups
+    // Find latest point (assumes points are sorted by time asc)
+    const lastPoint = points[points.length - 1];
+
+    const pointMarkers = [];
+
     points.forEach(p => {
-        const marker = L.circleMarker([p.lat, p.lon], {
-            radius: 4,
-            weight: 1,
-            fillOpacity: 0.7
-        }).addTo(map);
+      const isLatest =
+        lastPoint && p.lat === lastPoint.lat && p.lon === lastPoint.lon && p.addedOn === lastPoint.addedOn;
 
-        let tooltip = '';
+      const marker = L.circleMarker([p.lat, p.lon], {
+        radius: isLatest ? 8 : 6,  // bigger for latest
+        weight: isLatest ? 3 : 2,
+        fillOpacity: 0.9,
+        interactive: true
+      }).addTo(map);
 
-        // a) Timestamp
-        if (p.addedOn) {
-            tooltip += `<strong>${escapeHtml(p.addedOn)}</strong>`;
-        }
+      let popup = '';
 
-        // b) Lat / Lon
-        tooltip += `<br>lat: ${p.lat.toFixed(5)}, lon: ${p.lon.toFixed(5)}`;
+      // a) Timestamp
+      if (p.addedOn) {
+        popup += `<strong>${escapeHtml(p.addedOn)}</strong>`;
+      }
 
-        // c) Message (clickable links + line breaks)
-        if (p.message) {
-            tooltip += `<br><br>${autoLink(p.message)}`;
-        }
+      // b) Lat / Lon first
+      popup += `<br>lat: ${p.lat.toFixed(5)}, lon: ${p.lon.toFixed(5)}`;
 
-        marker.bindPopup(tooltip, {
-            maxWidth: 320,
-            closeButton: true
-        });
+      // c) Message (clickable links + line breaks)
+      if (p.message) {
+        popup += `<br><br>${autoLink(p.message)}`;
+      }
 
-        drawnLayers.push(marker);
+      marker.bindPopup(popup, {
+        maxWidth: 320,
+        closeButton: true,
+        autoPan: true
+      });
+
+      // Mobile: open popup on tap
+      marker.on('click', () => marker.openPopup());
+      marker.on('touchstart', () => marker.openPopup());
+
+      drawnLayers.push(marker);
+      pointMarkers.push(marker);
     });
 
-    // 4) Latest marker
-    const lastSeg = segments[segments.length - 1];
-    const last = lastSeg[lastSeg.length - 1];
+    // Optionally open latest popup by default (nice on mobile)
+    // (Comment out if you don't want this behavior)
+    const latestMarker = pointMarkers[pointMarkers.length - 1];
+    if (latestMarker) {
+      latestMarker.openPopup();
+    }
 
-    const latestMarker = L.marker(last).addTo(map);
-    // latestMarker.bindPopup('Latest position').openPopup();
-    drawnLayers.push(latestMarker);
-
-    // 5) Meta line
+    // 4) Meta line
     const timeText = latestUtc ? `${latestUtc} UTC` : '';
     meta.textContent =
-      `Latest: ${last[0].toFixed(5)}, ${last[1].toFixed(5)}${timeText ? ' @ ' + timeText : ''}`;
+      `Latest: ${lastPoint.lat.toFixed(5)}, ${lastPoint.lon.toFixed(5)}${timeText ? ' @ ' + timeText : ''}`;
   }
 
-  function escapeHtml(s) {
-    return String(s)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
-  }
-
-  loadTrack().catch(() => {
+  loadTrack().catch((e) => {
+    console.error(e);
     meta.textContent = 'Failed to load points. Check /api/trackpoints.';
   });
 </script>
-
-
 {% endblock %}
