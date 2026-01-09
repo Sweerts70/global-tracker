@@ -24,32 +24,48 @@ class TrackMapController extends AbstractController
 
         $maxGapNm = 1000.0;
 
+        // NEW: if more than 3 days between updates, start a new segment
+        $maxGapSeconds = 3 * 24 * 60 * 60; // 3 days
+
         $segments = [];
         $currentSegment = [];
 
         $prevLat = null;
         $prevLon = null;
+        $prevAddedOn = null; /** @var \DateTimeInterface|null */
 
         foreach ($points as $p) {
             $lat = (float) $p->getLat();
             $lon = (float) $p->getLon();
+            $addedOn = $p->getAddedOn(); // DateTimeInterface
 
-            if ($prevLat !== null && $prevLon !== null) {
+            $startNewSegment = false;
+
+            if ($prevLat !== null && $prevLon !== null && $prevAddedOn !== null) {
+                // a) Distance gap
                 $gapNm = $this->haversineNm($prevLat, $prevLon, $lat, $lon);
-
                 if ($gapNm > $maxGapNm) {
-                    // close current segment if it has enough points
+                    $startNewSegment = true;
+                }
+                // b) Time gap
+                $gapSeconds = $addedOn->getTimestamp() - $prevAddedOn->getTimestamp();
+                if ($gapSeconds > $maxGapSeconds) {
+                    $startNewSegment = true;
+                }
+
+                if ($startNewSegment) {
                     if (count($currentSegment) >= 2) {
                         $segments[] = $currentSegment;
                     }
-                    // start new segment
                     $currentSegment = [];
                 }
             }
 
             $currentSegment[] = [$lat, $lon];
+
             $prevLat = $lat;
             $prevLon = $lon;
+            $prevAddedOn = $addedOn;
         }
 
         if (count($currentSegment) >= 2) {
@@ -62,31 +78,27 @@ class TrackMapController extends AbstractController
                 'lat' => (float) $p->getLat(),
                 'lon' => (float) $p->getLon(),
                 'addedOn' => $p->getAddedOn()->format('Y-m-d H:i') . ' UTC',
-                'message' => $p->getMessage()
+                'message' => $p->getMessage(),
             ];
         }
 
-        $latestAddedOn = null;
+        $latestUtc = null;
         if (!empty($points)) {
-            $latestAddedOn = end($points)->getAddedOn()->format('Y-m-d H:i');
+            $latestUtc = end($points)->getAddedOn()->format('Y-m-d H:i');
         }
 
         return $this->json([
             'segments' => $segments,
             'points' => $pointsOut,
-            'latestUtc' => $latestAddedOn,
+            'latestUtc' => $latestUtc,
         ]);
     }
 
     /**
      * Great-circle distance (Haversine) in nautical miles.
      */
-    private function haversineNm(
-        float $lat1,
-        float $lon1,
-        float $lat2,
-        float $lon2
-    ): float {
+    private function haversineNm(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
         $earthRadiusMeters = 6371000.0;
 
         $phi1 = deg2rad($lat1);
@@ -95,10 +107,9 @@ class TrackMapController extends AbstractController
         $dLambda = deg2rad($lon2 - $lon1);
 
         $a = sin($dPhi / 2) ** 2
-        + cos($phi1) * cos($phi2) * sin($dLambda / 2) ** 2;
+            + cos($phi1) * cos($phi2) * sin($dLambda / 2) ** 2;
 
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
-
         $meters = $earthRadiusMeters * $c;
 
         return $meters / 1852.0; // meters → nautical miles
