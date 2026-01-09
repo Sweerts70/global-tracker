@@ -1,0 +1,144 @@
+{% extends 'base.html.twig' %}
+{% block title %}Hein's Global Tracker{% endblock %}
+
+{% block body %}
+<div style="max-width: 1200px; margin: 0 auto; padding: 16px;">
+  <h1 style="margin: 0 0 10px 0;">Hein's Global Tracker</h1>
+  <div id="meta" style="margin: 0 0 12px 0; opacity: .8;"></div>
+
+  <div id="map" style="height: 78vh; border-radius: 12px; overflow: hidden;"></div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+  const map = L.map('map', { worldCopyJump: true }).setView([0, 0], 2);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+
+  const meta = document.getElementById('meta');
+
+  let drawnLayers = [];
+
+  function clearDrawn() {
+    drawnLayers.forEach(layer => map.removeLayer(layer));
+    drawnLayers = [];
+  }
+
+    function autoLink(s) {
+        if (!s) return '';
+
+        // Escape everything first
+        let escaped = escapeHtml(s);
+
+        // Convert URLs into links (http/https only)
+        escaped = escaped.replace(
+            /(https?:\/\/[^\s<]+)/g,
+            '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+        );
+
+        // Preserve line breaks
+        return escaped.replace(/\n/g, '<br>');
+    }
+
+  async function loadTrack() {
+    const res = await fetch('/api/trackpoints');
+    if (!res.ok) throw new Error('API error');
+
+    const json = await res.json();
+
+    const segments = json.segments || [];
+    const points = json.points || [];
+    const latestUtc = json.latestUtc || null;
+
+    clearDrawn();
+
+    if (segments.length === 0) {
+      meta.textContent = 'No points yet.';
+      return;
+    }
+
+    // 1) Draw polylines
+    const lines = [];
+    segments.forEach(seg => {
+      if (seg.length >= 2) {
+        const poly = L.polyline(seg).addTo(map);
+        lines.push(poly);
+        drawnLayers.push(poly);
+      } else if (seg.length === 1) {
+        const dot = L.circleMarker(seg[0], { radius: 4, weight: 1, fillOpacity: 0.7 }).addTo(map);
+        drawnLayers.push(dot);
+      }
+    });
+
+    // 2) Fit bounds
+    if (lines.length) {
+      const group = L.featureGroup(lines);
+      map.fitBounds(group.getBounds(), { padding: [30, 30] });
+    }
+
+    // 3) Hover / tap points with timestamp + message
+    points.forEach(p => {
+        const marker = L.circleMarker([p.lat, p.lon], {
+            radius: 4,
+            weight: 1,
+            fillOpacity: 0.7
+        }).addTo(map);
+
+        let tooltip = '';
+
+        // a) Timestamp
+        if (p.addedOn) {
+            tooltip += `<strong>${escapeHtml(p.addedOn)}</strong>`;
+        }
+
+        // b) Lat / Lon
+        tooltip += `<br>lat: ${p.lat.toFixed(5)}, lon: ${p.lon.toFixed(5)}`;
+
+        // c) Message (clickable links + line breaks)
+        if (p.message) {
+            tooltip += `<br><br>${autoLink(p.message)}`;
+        }
+
+        marker.bindPopup(tooltip, {
+            maxWidth: 320,
+            closeButton: true
+        });
+
+        drawnLayers.push(marker);
+    });
+
+    // 4) Latest marker
+    const lastSeg = segments[segments.length - 1];
+    const last = lastSeg[lastSeg.length - 1];
+
+    const latestMarker = L.marker(last).addTo(map);
+    // latestMarker.bindPopup('Latest position').openPopup();
+    drawnLayers.push(latestMarker);
+
+    // 5) Meta line
+    const timeText = latestUtc ? `${latestUtc} UTC` : '';
+    meta.textContent =
+      `Latest: ${last[0].toFixed(5)}, ${last[1].toFixed(5)}${timeText ? ' @ ' + timeText : ''}`;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  loadTrack().catch(() => {
+    meta.textContent = 'Failed to load points. Check /api/trackpoints.';
+  });
+</script>
+
+
+{% endblock %}
