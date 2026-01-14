@@ -166,7 +166,7 @@
     let popup = '';
 
     if (p.addedOn) popup += `<strong>${escapeHtml(p.addedOn)}</strong>`;
-    popup += `<br>lat: ${p.lat.toFixed(5)}, lon: ${p.lon.toFixed(5)}`;
+    popup += `<br>Lat: ${p.lat.toFixed(5)}, Lon: ${p.lon.toFixed(5)}`;
     if (p.message) popup += `<br><br>${autoLink(p.message)}`;
 
     hit.bindPopup(popup, {
