@@ -2,16 +2,22 @@
 
 namespace App\Controller;
 
-use App\Entity\TrackPoint;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use App\Entity\TrackPoint;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+
 
 class TrackMapController extends AbstractController
 {
+    private const ALLOWED_SENDERS = [
+        '+41798494718',
+        'xxxxx',
+    ];
+
     #[Route('/', name: 'track_map', methods: ['GET'])]
     public function map(): Response
     {
@@ -98,43 +104,79 @@ class TrackMapController extends AbstractController
     #[Route('/sms/inbound', name: 'telnyx_sms_inbound', methods: ['POST'])]
     public function smsInbound(Request $request): JsonResponse
     {
+        $raw = $request->getContent();
 
+        // Log access
         file_put_contents(
             $this->getParameter('kernel.project_dir') . '/var/log/sms_inbound_access.log',
-            sprintf(
-                "[%s] %s %s\n",
-                date('c'),
-                $request->getClientIp(),
-                $request->getContent()
-            ),
+            sprintf("[%s] %s %s\n", date('c'), $request->getClientIp(), $raw),
             FILE_APPEND
         );
-        
-        // 1) Log raw body so you can confirm Telnyx delivery
-        $raw = $request->getContent();
+
+        // Log raw Telnyx payload (debug)
         file_put_contents(
             $this->getParameter('kernel.project_dir') . '/var/log/telnyx_inbound.log',
             $raw . PHP_EOL,
             FILE_APPEND
         );
 
-        // 2) Decode (optional for first test)
         $payload = json_decode($raw, true);
+        if (!is_array($payload)) {
+            // Bad JSON - still return 200 to avoid retries
+            return new JsonResponse(['status' => 'ignored']);
+        }
 
-        // 3) Only process inbound SMS events
+        // Only process inbound SMS events
         if (($payload['data']['event_type'] ?? '') !== 'message.received') {
             return new JsonResponse(['status' => 'ignored']);
         }
 
-        // Extract what you’ll store later
-        $text = $payload['data']['payload']['text'] ?? '';
-        $from = $payload['data']['payload']['from']['phone_number'] ?? null;
+        $fromRaw = $payload['data']['payload']['from']['phone_number'] ?? '';
+        $from    = $this->normalizePhone($fromRaw);
 
-        // For now, just confirm it worked
+        // Whitelist
+        $allowed = array_map([$this, 'normalizePhone'], self::ALLOWED_SENDERS);
+        if (!in_array($from, $allowed, true)) {
+            // Silently ignore unapproved senders (HTTP 200)
+            return new JsonResponse(['status' => 'rejected']);
+        }
+
+        $text = (string)($payload['data']['payload']['text'] ?? '');
+
+        // Extract coordinates
+        $coords = $this->parseIridiumLatLon($text);
+        if ($coords === null) {
+            // No coords found; ignore (or you could store message-only points if you want)
+            return new JsonResponse(['status' => 'no_coords']);
+        }
+
+        // Format to match DECIMAL(9,6) storage (string)
+        $latStr = number_format($coords['lat'], 6, '.', '');
+        $lonStr = number_format($coords['lon'], 6, '.', '');
+
+        // Create TrackPoint
+        $tp = new TrackPoint();
+        $tp->setAddedOn(new \DateTime('now', new \DateTimeZone('UTC')));
+        $tp->setLat($latStr);
+        $tp->setLon($lonStr);
+
+        // Set message/source based on sender
+        if ($from === '+41798494718') {
+            $tp->setMessage('Sent by phone');
+            $tp->setSource('phone');
+        } else {
+            $tp->setMessage('Sent by Iridium 9575 Extreme');
+            $tp->setSource('Iridium');
+        }
+
+        $em->persist($tp);
+        $em->flush();
+
         return new JsonResponse([
             'status' => 'ok',
-            'from' => $from,
-            'text' => $text,
+            'from'   => $from,
+            'lat'    => $latStr,
+            'lon'    => $lonStr,
         ]);
     }
 
@@ -157,5 +199,26 @@ class TrackMapController extends AbstractController
         $meters = $earthRadiusMeters * $c;
 
         return $meters / 1852.0; // meters → nautical miles
+    }
+
+    private function normalizePhone(string $number): string
+    {
+        // keep leading +, strip everything else
+        return preg_replace('/(?!^\+)[^\d]/', '', trim($number));
+    }
+
+    private function parseIridiumLatLon(string $text): ?array
+    {
+        // Primary: "Lat+43.834483 Lon+007.924733"
+        if (preg_match('/Lat([+-]\d+\.\d+)\s+Lon([+-]\d+\.\d+)/', $text, $m)) {
+            return ['lat' => (float) $m[1], 'lon' => (float) $m[2]];
+        }
+
+        // Fallback: from the URL "lat=...&lon=..."
+        if (preg_match('/[?&]lat=([+-]?\d+\.\d+).*?[?&]lon=([+-]?\d+\.\d+)/', $text, $m)) {
+            return ['lat' => (float) $m[1], 'lon' => (float) $m[2]];
+        }
+
+        return null;
     }
 }
