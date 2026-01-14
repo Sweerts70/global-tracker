@@ -160,13 +160,23 @@ class TrackMapController extends AbstractController
         $tp->setLat($latStr);
         $tp->setLon($lonStr);
 
-        // Set message/source based on sender
+        // Set source based on sender
         if ($from === '+41798494718') {
-            $tp->setMessage('Sent by phone');
             $tp->setSource('Phone');
         } else {
-            $tp->setMessage('Sent by Iridium 9575 Extreme');
             $tp->setSource('Iridium');
+        }
+
+        // Message: prefer "msg:" override, else default
+        $customMsg = $this->extractMsgSuffix($text);
+        if ($customMsg !== null) {
+            $tp->setMessage($customMsg);
+        } else {
+            if ($from === '+41798494718') {
+                $tp->setMessage('Sent by phone');
+            } else {
+                $tp->setMessage('Sent by Iridium 9575 Extreme');
+            }
         }
 
         $em->persist($tp);
@@ -219,6 +229,16 @@ class TrackMapController extends AbstractController
             return ['lat' => (float) $m[1], 'lon' => (float) $m[2]];
         }
 
+        return null;
+    }
+
+    private function extractMsgSuffix(string $text): ?string
+    {
+        // Capture everything after "msg:" (case-insensitive), including spaces
+        if (preg_match('/\bmsg:\s*(.+)\s*$/is', $text, $m)) {
+            $msg = trim($m[1]);
+            return $msg !== '' ? $msg : null;
+        }
         return null;
     }
 }
