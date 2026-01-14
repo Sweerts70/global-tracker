@@ -102,7 +102,7 @@ class TrackMapController extends AbstractController
     }
 
     #[Route('/sms/inbound', name: 'telnyx_sms_inbound', methods: ['POST'])]
-    public function smsInbound(Request $request): JsonResponse
+    public function smsInbound(Request $request, EntityManagerInterface $em): JsonResponse
     {
         $raw = $request->getContent();
 
@@ -163,7 +163,7 @@ class TrackMapController extends AbstractController
         // Set message/source based on sender
         if ($from === '+41798494718') {
             $tp->setMessage('Sent by phone');
-            $tp->setSource('phone');
+            $tp->setSource('Phone');
         } else {
             $tp->setMessage('Sent by Iridium 9575 Extreme');
             $tp->setSource('Iridium');
@@ -209,13 +209,13 @@ class TrackMapController extends AbstractController
 
     private function parseIridiumLatLon(string $text): ?array
     {
-        // Primary: "Lat+43.834483 Lon+007.924733"
-        if (preg_match('/Lat([+-]\d+\.\d+)\s+Lon([+-]\d+\.\d+)/', $text, $m)) {
+        // Primary: supports integers and decimals
+        if (preg_match('/Lat([+-]\d+(?:\.\d+)?)\s+Lon([+-]\d+(?:\.\d+)?)/i', $text, $m)) {
             return ['lat' => (float) $m[1], 'lon' => (float) $m[2]];
         }
 
-        // Fallback: from the URL "lat=...&lon=..."
-        if (preg_match('/[?&]lat=([+-]?\d+\.\d+).*?[?&]lon=([+-]?\d+\.\d+)/', $text, $m)) {
+        // Fallback: from the URL
+        if (preg_match('/[?&]lat=([+-]?\d+(?:\.\d+)?).*?[?&]lon=([+-]?\d+(?:\.\d+)?)/i', $text, $m)) {
             return ['lat' => (float) $m[1], 'lon' => (float) $m[2]];
         }
 
