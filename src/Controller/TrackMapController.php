@@ -98,6 +98,18 @@ class TrackMapController extends AbstractController
     #[Route('/sms/inbound', name: 'telnyx_sms_inbound', methods: ['POST'])]
     public function smsInbound(Request $request): JsonResponse
     {
+
+        file_put_contents(
+            $this->getParameter('kernel.project_dir') . '/var/log/sms_inbound_access.log',
+            sprintf(
+                "[%s] %s %s\n",
+                date('c'),
+                $request->getClientIp(),
+                $request->getContent()
+            ),
+            FILE_APPEND
+        );
+        
         // 1) Log raw body so you can confirm Telnyx delivery
         $raw = $request->getContent();
         file_put_contents(
