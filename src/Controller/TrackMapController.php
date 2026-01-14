@@ -7,6 +7,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
 class TrackMapController extends AbstractController
@@ -91,6 +92,37 @@ class TrackMapController extends AbstractController
             'segments' => $segments,
             'points' => $pointsOut,
             'latestUtc' => $latestUtc,
+        ]);
+    }
+
+    #[Route('/sms/inbound', name: 'telnyx_sms_inbound', methods: ['POST'])]
+    public function smsInbound(Request $request): JsonResponse
+    {
+        // 1) Log raw body so you can confirm Telnyx delivery
+        $raw = $request->getContent();
+        file_put_contents(
+            $this->getParameter('kernel.project_dir') . '/var/log/telnyx_inbound.log',
+            $raw . PHP_EOL,
+            FILE_APPEND
+        );
+
+        // 2) Decode (optional for first test)
+        $payload = json_decode($raw, true);
+
+        // 3) Only process inbound SMS events
+        if (($payload['data']['event_type'] ?? '') !== 'message.received') {
+            return new JsonResponse(['status' => 'ignored']);
+        }
+
+        // Extract what you’ll store later
+        $text = $payload['data']['payload']['text'] ?? '';
+        $from = $payload['data']['payload']['from']['phone_number'] ?? null;
+
+        // For now, just confirm it worked
+        return new JsonResponse([
+            'status' => 'ok',
+            'from' => $from,
+            'text' => $text,
         ]);
     }
 
