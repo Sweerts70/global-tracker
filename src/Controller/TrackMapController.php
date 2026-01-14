@@ -170,16 +170,14 @@ class TrackMapController extends AbstractController
         // Message: default + optional "msg:" suffix
         $customMsg = $this->extractMsgSuffix($text);
 
-        if ($from === '+41798494718') {
-            $baseMessage = 'Sent by Phone';
-        } else {
-            $baseMessage = 'Sent by Iridium 9575 Extreme';
-        }
-
         if ($customMsg !== null) {
-            $tp->setMessage($baseMessage . ': ' . $customMsg);
+            $tp->setMessage($customMsg);
         } else {
-            $tp->setMessage($baseMessage);
+            if ($from === '+41798494718') {
+                $tp->setMessage('Position sent by phone');
+            } else {
+                $tp->setMessage('Position sent by Iridium 9575 Extreme');
+            }
         }
 
         $em->persist($tp);
