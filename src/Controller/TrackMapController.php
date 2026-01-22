@@ -15,7 +15,7 @@ class TrackMapController extends AbstractController
 {
     private const ALLOWED_SENDERS = [
         '+41798494718',
-        'xxxxx',
+        '+881631669184',
     ];
 
     #[Route('/', name: 'track_map', methods: ['GET'])]
