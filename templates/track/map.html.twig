@@ -7,7 +7,21 @@
   <div id="meta" style="margin: 0 0 12px 0; opacity: .8;"></div>
 
   <div id="map" style="height: 78vh; border-radius: 12px; overflow: hidden;"></div>
+
+  <div style="margin-top: 16px; opacity: 0.85;">
+      <p>
+          Tap on a marker to reveal content.
+          <span style="color:#2ecc71; font-weight:600;">Green</span> markers indicate locations/positions with an attached link,
+          <span style="color:#3388ff; font-weight:600;">blue</span> markers only contain a short message.
+          No conclusion should be drawn in case of no update: weather conditions may not permit updates and remote locations may cause messages not to be delivered correctly.
+          <br>
+          © SdL Technologies,
+          <a href="https://sdl-t.com" target="_blank" rel="noopener noreferrer">https://sdl-t.com</a> 
+      </p>
+  </div>
 </div>
+
+
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -147,11 +161,16 @@
     const hitRadius = isCoarsePointer ? 20 : 12;
 
     // 1) visible dot
+    const hasLink = p.message && /https?:\/\//i.test(p.message);
+    const dotColor = hasLink ? '#2ecc71' : '#3388ff';
+
     const dot = L.circleMarker([p.lat, p.lon], {
         radius: visibleRadius,
         weight: isLatest ? 3 : 2,
+        color: dotColor,     // stroke
+        fillColor: dotColor, // fill
         fillOpacity: 0.9,
-        interactive: false   // IMPORTANT: dot is not the tap target
+        interactive: false
     }).addTo(map);
 
     // 2) invisible hit target on top
