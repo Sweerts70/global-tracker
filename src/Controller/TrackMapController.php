@@ -193,6 +193,100 @@ class TrackMapController extends AbstractController
         ]);
     }
 
+    #[Route('/sms/inbound-email', name: 'postmark_email_inbound', methods: ['POST'])]
+    public function emailInbound(Request $request, EntityManagerInterface $em): JsonResponse
+    {
+        $raw = $request->getContent();
+
+        // Log access
+        file_put_contents(
+            $this->getParameter('kernel.project_dir') . '/var/log/email_inbound_access.log',
+            sprintf("[%s] %s %s\n", date('c'), $request->getClientIp(), $raw),
+            FILE_APPEND
+        );
+
+        // Log raw email payload (debug)
+        file_put_contents(
+            $this->getParameter('kernel.project_dir') . '/var/log/email_inbound.log',
+            $raw . PHP_EOL,
+            FILE_APPEND
+        );
+
+        $payload = json_decode($raw, true);
+        if (!is_array($payload)) {
+            // Bad JSON - still return 200 to avoid retries
+            return new JsonResponse(['status' => 'ignored']);
+        }
+
+        // Only process inbound SMS events
+        if (($payload['data']['event_type'] ?? '') !== 'message.received') {
+            return new JsonResponse(['status' => 'ignored']);
+        }
+
+        /*
+        $fromRaw = $payload['data']['payload']['from']['phone_number'] ?? '';
+        $from    = $this->normalizePhone($fromRaw);
+
+        // Whitelist
+        $allowed = array_map([$this, 'normalizePhone'], self::ALLOWED_SENDERS);
+        if (!in_array($from, $allowed, true)) {
+            // Silently ignore unapproved senders (HTTP 200)
+            return new JsonResponse(['status' => 'rejected']);
+        }
+
+        $text = (string)($payload['data']['payload']['text'] ?? '');
+
+        // Extract coordinates
+        $coords = $this->parseIridiumLatLon($text);
+        if ($coords === null) {
+            // No coords found; ignore (or you could store message-only points if you want)
+            return new JsonResponse(['status' => 'no_coords']);
+        }
+
+        // Format to match DECIMAL(9,6) storage (string)
+        $latStr = number_format($coords['lat'], 6, '.', '');
+        $lonStr = number_format($coords['lon'], 6, '.', '');
+
+        // Create TrackPoint
+        $tp = new TrackPoint();
+        $tp->setAddedOn(new \DateTime('now', new \DateTimeZone('UTC')));
+        $tp->setLat($latStr);
+        $tp->setLon($lonStr);
+
+        // Set source based on sender
+        if ($from === '+41798494718') {
+            $tp->setSource('Phone');
+        } else {
+            $tp->setSource('Iridium');
+        }
+
+        // Message: default + optional "msg:" suffix
+        $customMsg = $this->extractMsgSuffix($text);
+
+        if ($from === '+41798494718') {
+            $baseMessage = 'Position sent by phone';
+        } else {
+            $baseMessage = 'Position sent via satellite';
+        }
+
+        if ($customMsg !== null) {
+            $tp->setMessage($baseMessage . ': ' . $customMsg);
+        } else {
+            $tp->setMessage($baseMessage);
+        }
+
+        $em->persist($tp);
+        $em->flush();
+
+        return new JsonResponse([
+            'status' => 'ok',
+            'from'   => $from,
+            'lat'    => $latStr,
+            'lon'    => $lonStr,
+        ]);
+        */
+    }
+
     /**
      * Great-circle distance (Haversine) in nautical miles.
      */
