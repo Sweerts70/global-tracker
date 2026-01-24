@@ -215,32 +215,39 @@ class TrackMapController extends AbstractController
         $payload = json_decode($raw, true);
         if (!is_array($payload)) {
             // Bad JSON - still return 200 to avoid retries
-            return new JsonResponse(['status' => 'ignored']);
+            return new JsonResponse(['status' => 'ignored'], 200);
         }
 
-        // Only process inbound SMS events
-        if (($payload['data']['event_type'] ?? '') !== 'message.received') {
-            return new JsonResponse(['status' => 'ignored']);
+        /**
+         * Postmark inbound format (examples):
+         *  - FromName: "881631669184"
+         *  - FromFull.Email: "881631669184@msg.iridium.com"
+         *  - TextBody: "LAT ... LON ...\n\n"
+         */
+        $text = trim((string)($payload['TextBody'] ?? ''));
+        if ($text === '') {
+            return new JsonResponse(['status' => 'no_text'], 200);
         }
 
-        /*
-        $fromRaw = $payload['data']['payload']['from']['phone_number'] ?? '';
-        $from    = $this->normalizePhone($fromRaw);
+        // Extract sender number from Postmark payload
+        $fromDigits = (string)($payload['FromName'] ?? '');
+        if ($fromDigits === '' && isset($payload['FromFull']['Email'])) {
+            $fromDigits = preg_replace('/@.*/', '', (string)$payload['FromFull']['Email']); // "881631669184"
+        }
 
-        // Whitelist
+        // Normalize to E.164-ish (+...)
+        $from = $this->normalizePhone('+' . ltrim($fromDigits, '+'));
+
+        // Whitelist (reuse existing allowed list)
         $allowed = array_map([$this, 'normalizePhone'], self::ALLOWED_SENDERS);
         if (!in_array($from, $allowed, true)) {
-            // Silently ignore unapproved senders (HTTP 200)
-            return new JsonResponse(['status' => 'rejected']);
+            return new JsonResponse(['status' => 'rejected', 'from' => $from], 200);
         }
 
-        $text = (string)($payload['data']['payload']['text'] ?? '');
-
-        // Extract coordinates
+        // Extract coordinates from the SMS text
         $coords = $this->parseIridiumLatLon($text);
         if ($coords === null) {
-            // No coords found; ignore (or you could store message-only points if you want)
-            return new JsonResponse(['status' => 'no_coords']);
+            return new JsonResponse(['status' => 'no_coords', 'from' => $from], 200);
         }
 
         // Format to match DECIMAL(9,6) storage (string)
@@ -253,7 +260,7 @@ class TrackMapController extends AbstractController
         $tp->setLat($latStr);
         $tp->setLon($lonStr);
 
-        // Set source based on sender
+        // Source (you can keep your existing phone sender as-is)
         if ($from === '+41798494718') {
             $tp->setSource('Phone');
         } else {
@@ -283,8 +290,7 @@ class TrackMapController extends AbstractController
             'from'   => $from,
             'lat'    => $latStr,
             'lon'    => $lonStr,
-        ]);
-        */
+        ], 200);
     }
 
     /**
