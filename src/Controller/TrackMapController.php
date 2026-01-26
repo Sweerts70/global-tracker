@@ -18,6 +18,10 @@ class TrackMapController extends AbstractController
         '+881631669184',
     ];
 
+    private const ALLOWED_EMAIL_SENDERS = [
+        'heinsweerts@gmail.com',
+    ];
+
     #[Route('/', name: 'track_map', methods: ['GET'])]
     public function map(): Response
     {
@@ -219,63 +223,88 @@ class TrackMapController extends AbstractController
         }
 
         /**
-         * Postmark inbound format (examples):
+         * Postmark inbound format examples:
          *  - FromName: "881631669184"
          *  - FromFull.Email: "881631669184@msg.iridium.com"
-         *  - TextBody: "LAT ... LON ...\n\n"
+         *  - FromFull.Email: "heinsweerts@gmail.com"
+         *  - TextBody: "Lat+12.345 Lon-67.890\n"
          */
         $text = trim((string)($payload['TextBody'] ?? ''));
+        if ($text === '' && isset($payload['HtmlBody'])) {
+            $text = trim(strip_tags((string)$payload['HtmlBody']));
+        }
         if ($text === '') {
             return new JsonResponse(['status' => 'no_text'], 200);
         }
 
-        // Extract sender number from Postmark payload
-        $fromDigits = (string)($payload['FromName'] ?? '');
-        if ($fromDigits === '' && isset($payload['FromFull']['Email'])) {
-            $fromDigits = preg_replace('/@.*/', '', (string)$payload['FromFull']['Email']); // "881631669184"
+        // ---- Sender detection ---------------------------------------------------
+
+        $fromEmail = strtolower(trim((string)($payload['FromFull']['Email'] ?? '')));
+
+        $isAllowedEmail = $fromEmail !== ''
+            && in_array($fromEmail, self::ALLOWED_EMAIL_SENDERS, true);
+
+        $from = null;           // normalized phone
+        $senderType = null;     // 'email' | 'phone'
+
+        if ($isAllowedEmail) {
+            $senderType = 'email';
+        } else {
+            // Phone / Iridium path
+            $fromDigits = (string)($payload['FromName'] ?? '');
+
+            if ($fromDigits === '' && $fromEmail !== '') {
+                // e.g. 881631669184@msg.iridium.com
+                $fromDigits = preg_replace('/@.*/', '', $fromEmail);
+            }
+
+            $from = $this->normalizePhone('+' . ltrim($fromDigits, '+'));
+            $senderType = 'phone';
+
+            $allowed = array_map([$this, 'normalizePhone'], self::ALLOWED_SENDERS);
+            if (!in_array($from, $allowed, true)) {
+                return new JsonResponse([
+                    'status' => 'rejected',
+                    'from'   => $from,
+                    'email'  => $fromEmail,
+                ], 200);
+            }
         }
 
-        // Normalize to E.164-ish (+...)
-        $from = $this->normalizePhone('+' . ltrim($fromDigits, '+'));
+        // ---- Coordinate parsing -------------------------------------------------
 
-        // Whitelist (reuse existing allowed list)
-        $allowed = array_map([$this, 'normalizePhone'], self::ALLOWED_SENDERS);
-        if (!in_array($from, $allowed, true)) {
-            return new JsonResponse(['status' => 'rejected', 'from' => $from], 200);
-        }
-
-        // Extract coordinates from the SMS text
         $coords = $this->parseIridiumLatLon($text);
         if ($coords === null) {
-            return new JsonResponse(['status' => 'no_coords', 'from' => $from], 200);
+            return new JsonResponse([
+                'status' => 'no_coords',
+                'from'   => $senderType === 'email' ? $fromEmail : $from,
+            ], 200);
         }
 
-        // Format to match DECIMAL(9,6) storage (string)
         $latStr = number_format($coords['lat'], 6, '.', '');
         $lonStr = number_format($coords['lon'], 6, '.', '');
 
-        // Create TrackPoint
+        // ---- Persist TrackPoint -------------------------------------------------
+
         $tp = new TrackPoint();
         $tp->setAddedOn(new \DateTime('now', new \DateTimeZone('UTC')));
         $tp->setLat($latStr);
         $tp->setLon($lonStr);
 
-        // Source (you can keep your existing phone sender as-is)
-        if ($from === '+41798494718') {
-            $tp->setSource('Phone');
+        if ($senderType === 'email') {
+            $tp->setSource('Email');
+            $baseMessage = 'Position sent by email';
         } else {
-            $tp->setSource('Iridium');
+            if ($from === '+41798494718') {
+                $tp->setSource('Phone');
+                $baseMessage = 'Position sent by phone';
+            } else {
+                $tp->setSource('Iridium');
+                $baseMessage = 'Position sent via satellite';
+            }
         }
 
-        // Message: default + optional "msg:" suffix
         $customMsg = $this->extractMsgSuffix($text);
-
-        if ($from === '+41798494718') {
-            $baseMessage = 'Position sent by phone';
-        } else {
-            $baseMessage = 'Position sent via satellite';
-        }
-
         if ($customMsg !== null) {
             $tp->setMessage($baseMessage . ': ' . $customMsg);
         } else {
@@ -287,11 +316,12 @@ class TrackMapController extends AbstractController
 
         return new JsonResponse([
             'status' => 'ok',
-            'from'   => $from,
+            'sender' => $senderType === 'email' ? $fromEmail : $from,
             'lat'    => $latStr,
             'lon'    => $lonStr,
         ], 200);
     }
+
 
     /**
      * Great-circle distance (Haversine) in nautical miles.
