@@ -42,7 +42,7 @@ class VisitorLog
     private ?string $userAgent = null;
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
-    private ?string $referre = null;
+    private ?string $referer = null;
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $acceptLanguage = null;
@@ -67,6 +67,11 @@ class VisitorLog
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $asOrg = null;
+
+    public function __construct()
+    {
+        $this->visitedOn = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+    }
 
     public function getId(): ?int
     {
@@ -181,14 +186,14 @@ class VisitorLog
         return $this;
     }
 
-    public function getReferre(): ?string
+    public function getReferer(): ?string
     {
-        return $this->referre;
+        return $this->referer;
     }
 
-    public function setReferre(?string $referre): static
+    public function setReferer(?string $referer): static
     {
-        $this->referre = $referre;
+        $this->referer = $referer;
 
         return $this;
     }
