@@ -58,6 +58,11 @@ final class VisitorLogSubscriber implements EventSubscriberInterface
         // Optional: geo enrichment (see section 4)
         // $this->geoEnrich($log, $ip);
 
+        $cfCountry = $req->headers->get('cf-ipcountry'); // e.g. "CH", "US", or "XX"
+        if ($cfCountry && $cfCountry !== 'XX') {
+            $log->setCountryIso(strtoupper($cfCountry));
+        }
+        
         $this->em->persist($log);
         $this->em->flush();
     }
