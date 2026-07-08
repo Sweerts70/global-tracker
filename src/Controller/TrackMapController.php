@@ -34,16 +34,18 @@ class TrackMapController extends AbstractController
         $points = $em->getRepository(TrackPoint::class)->findBy([], ['addedOn' => 'ASC']);
 
         $maxGapNm = 1000.0;
-
-        // NEW: if more than 3 days between updates, start a new segment
         $maxGapSeconds = 3 * 24 * 60 * 60; // 3 days
 
         $segments = [];
         $currentSegment = [];
 
+        $pointsOut = [];
+
         $prevLat = null;
         $prevLon = null;
         $prevAddedOn = null; /** @var \DateTimeInterface|null */
+
+        $segmentCumulativeNm = 0.0;
 
         foreach ($points as $p) {
             $lat = (float) $p->getLat();
@@ -51,6 +53,7 @@ class TrackMapController extends AbstractController
             $addedOn = $p->getAddedOn(); // DateTimeInterface
 
             $startNewSegment = false;
+            $distanceFromPrevNm = null; // null = N/A (first point of a segment)
 
             if ($prevLat !== null && $prevLon !== null && $prevAddedOn !== null) {
                 // a) Distance gap
@@ -69,10 +72,24 @@ class TrackMapController extends AbstractController
                         $segments[] = $currentSegment;
                     }
                     $currentSegment = [];
+                    $segmentCumulativeNm = 0.0; // reset running total for new segment
+                } else {
+                    // same segment: this point's distance from the previous one
+                    $distanceFromPrevNm = $gapNm;
+                    $segmentCumulativeNm += $gapNm;
                 }
             }
 
             $currentSegment[] = [$lat, $lon];
+
+            $pointsOut[] = [
+                'lat' => $lat,
+                'lon' => $lon,
+                'addedOn' => $addedOn->format('Y-m-d H:i') . ' UTC',
+                'message' => $p->getMessage(),
+                'distanceFromPrevNm' => $distanceFromPrevNm !== null ? round($distanceFromPrevNm, 1) : null,
+                'segmentCumulativeNm' => round($segmentCumulativeNm, 1),
+            ];
 
             $prevLat = $lat;
             $prevLon = $lon;
@@ -81,16 +98,6 @@ class TrackMapController extends AbstractController
 
         if (count($currentSegment) >= 2) {
             $segments[] = $currentSegment;
-        }
-
-        $pointsOut = [];
-        foreach ($points as $p) {
-            $pointsOut[] = [
-                'lat' => (float) $p->getLat(),
-                'lon' => (float) $p->getLon(),
-                'addedOn' => $p->getAddedOn()->format('Y-m-d H:i') . ' UTC',
-                'message' => $p->getMessage(),
-            ];
         }
 
         $latestUtc = null;

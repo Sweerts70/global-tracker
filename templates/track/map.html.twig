@@ -189,6 +189,8 @@
 
     if (p.addedOn) popup += `<strong>${escapeHtml(p.addedOn)}</strong>`;
     popup += `<br>Lat: ${p.lat.toFixed(5)}, Lon: ${p.lon.toFixed(5)}`;
+    popup += `<br>Distance from previous: ${p.distanceFromPrevNm !== null ? p.distanceFromPrevNm.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' NM' : 'N/A'}`;
+    popup += `<br>Total distance: ${p.segmentCumulativeNm.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} NM`;
     if (p.message) popup += `<br><br>${autoLink(p.message)}`;
 
     hit.bindPopup(popup, {
